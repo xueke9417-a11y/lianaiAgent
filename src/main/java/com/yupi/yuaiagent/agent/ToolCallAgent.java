@@ -38,6 +38,9 @@ public class ToolCallAgent extends ReActAgent {
     // 工具调用管理者
     private final ToolCallingManager toolCallingManager;
 
+    // 模型的文本回答（当无需工具调用时保存）
+    private String lastAssistantText;
+
     // 禁用 Spring AI 内置的工具调用机制，自己维护选项和消息上下文
     private final ChatOptions chatOptions;
 
@@ -67,39 +70,89 @@ public class ToolCallAgent extends ReActAgent {
         List<Message> messageList = getMessageList();
         Prompt prompt = new Prompt(messageList, this.chatOptions);
         try {
-            ChatResponse chatResponse = getChatClient().prompt(prompt)
-                    .system(getSystemPrompt())
-                    .tools(availableTools)
-                    .call()
-                    .chatResponse();
-            // 记录响应，用于等下 Act
-            this.toolCallChatResponse = chatResponse;
-            // 3、解析工具调用结果，获取要调用的工具
-            // 助手消息
-            AssistantMessage assistantMessage = chatResponse.getResult().getOutput();
-            // 获取要调用的工具列表
-            List<AssistantMessage.ToolCall> toolCallList = assistantMessage.getToolCalls();
-            // 输出提示信息
-            String result = assistantMessage.getText();
-            log.info(getName() + "的思考：" + result);
-            log.info(getName() + "选择了 " + toolCallList.size() + " 个工具来使用");
+            return doThinkWithTools(prompt);
+        } catch (Exception e) {
+            log.warn(getName() + "带工具调用失败，降级为纯文本对话: " + e.getMessage());
+            // 工具调用失败时（如工具注册兼容性问题），降级为不带工具的纯文本对话
+            return doThinkWithoutTools(prompt);
+        }
+    }
+
+    /**
+     * 带工具调用的大模型请求
+     */
+    private boolean doThinkWithTools(Prompt prompt) {
+        ChatResponse chatResponse = getChatClient().prompt(prompt)
+                .system(getSystemPrompt())
+                .tools((Object[]) availableTools)
+                .call()
+                .chatResponse();
+        this.toolCallChatResponse = chatResponse;
+        return processAssistantResponse(chatResponse);
+    }
+
+    /**
+     * 不带工具的大模型请求（降级方案）
+     */
+    private boolean doThinkWithoutTools(Prompt prompt) {
+        ChatResponse chatResponse = getChatClient().prompt(prompt)
+                .system(getSystemPrompt())
+                .call()
+                .chatResponse();
+        this.toolCallChatResponse = chatResponse;
+        return processAssistantResponse(chatResponse);
+    }
+
+    /**
+     * 解析模型响应：提取文本、判断是否需要工具调用
+     *
+     * @return true=需要执行工具, false=无需工具（模型已给出文本回答）
+     */
+    private boolean processAssistantResponse(ChatResponse chatResponse) {
+        AssistantMessage assistantMessage = chatResponse.getResult().getOutput();
+        List<AssistantMessage.ToolCall> toolCallList = assistantMessage.getToolCalls();
+
+        String result = assistantMessage.getText();
+        log.info(getName() + "的思考：" + result);
+        log.info(getName() + "选择了 " + toolCallList.size() + " 个工具来使用");
+
+        if (!toolCallList.isEmpty()) {
             String toolCallInfo = toolCallList.stream()
                     .map(toolCall -> String.format("工具名称：%s，参数：%s", toolCall.name(), toolCall.arguments()))
                     .collect(Collectors.joining("\n"));
             log.info(toolCallInfo);
-            // 如果不需要调用工具，返回 false
-            if (toolCallList.isEmpty()) {
-                // 只有不调用工具时，才需要手动记录助手消息
-                getMessageList().add(assistantMessage);
-                return false;
-            } else {
-                // 需要调用工具时，无需记录助手消息，因为调用工具时会自动记录
-                return true;
-            }
-        } catch (Exception e) {
-            log.error(getName() + "的思考过程遇到了问题：" + e.getMessage());
-            getMessageList().add(new AssistantMessage("处理时遇到了错误：" + e.getMessage()));
+        }
+
+        // 保存模型的文本回答
+        this.lastAssistantText = result;
+
+        if (toolCallList.isEmpty()) {
+            // 不需要调用工具：手动记录助手消息到上下文
+            getMessageList().add(assistantMessage);
             return false;
+        }
+        // 需要调用工具：无需手动记录，act() 执行时会自动记录
+        return true;
+    }
+
+    /**
+     * 执行单个步骤：思考和行动。覆盖父类以返回模型的实际文本回答。
+     *
+     * @return 步骤执行结果
+     */
+    @Override
+    public String step() {
+        try {
+            boolean shouldAct = think();
+            if (!shouldAct) {
+                // 模型直接给出回答，无需工具调用 → 任务完成，返回模型文本
+                setState(AgentState.FINISHED);
+                return StrUtil.isNotBlank(lastAssistantText) ? lastAssistantText : "思考完成 - 无需行动";
+            }
+            return act();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "步骤执行失败：" + e.getMessage();
         }
     }
 
