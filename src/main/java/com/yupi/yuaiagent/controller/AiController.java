@@ -3,6 +3,7 @@ package com.yupi.yuaiagent.controller;
 import com.yupi.yuaiagent.agent.YuManus;
 import com.yupi.yuaiagent.app.LoveApp;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.http.MediaType;
@@ -19,7 +20,7 @@ import java.io.IOException;
 @RequestMapping("/ai")
 public class AiController {
 
-    @Resource
+    @Autowired(required = false)
     private LoveApp loveApp;
 
     @Resource

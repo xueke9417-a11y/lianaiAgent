@@ -8,6 +8,7 @@ import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 import java.util.List;
 
@@ -15,6 +16,7 @@ import java.util.List;
  * 恋爱大师向量数据库配置（初始化基于内存的向量数据库 Bean）
  */
 @Configuration
+@Profile("rag")
 public class LoveAppVectorStoreConfig {
 
     @Resource

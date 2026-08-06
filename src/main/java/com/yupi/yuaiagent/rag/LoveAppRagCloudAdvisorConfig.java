@@ -10,11 +10,13 @@ import org.springframework.ai.rag.retrieval.search.DocumentRetriever;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 /**
  * 自定义基于阿里云知识库服务的 RAG 增强顾问
  */
 @Configuration
+@Profile("rag")
 @Slf4j
 public class LoveAppRagCloudAdvisorConfig {
 
